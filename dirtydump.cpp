@@ -26,37 +26,24 @@ static bool startwrite = false;
 static int ncrash = 0;
 static int nBlock = 0;
 static long currentSize = 0;
-// Shorter regex is possible, but I prefer like that.
-static regex
-    rs("^.+I recowvery: (\\*\\*\\* DUMP START \\*\\*\\*)\\s+"); // Used to start
-// writting binary
-// file
-static regex rl("^.+I recowvery: HEXDUMP = \\[([^\\]]+)\\];\\s+"); // Used to
-                                                                   // match all
-                                                                   // data
-                                                                   // block,
-                                                                   // and
-                                                                   // populate
-                                                                   // <
-                                                                   // datalist
-                                                                   // >
-static regex
-    rf("^.+I recowvery: (\\*\\*\\* DUMP END \\*\\*\\*)\\s+"); // Used to end
-                                                              // writting, and
-// exit infinit loop
-static regex
-    re("^.+I recowvery: (\\*\\*\\* DUMP ERROR \\*\\*\\*)\\s+"); // Used to
-// intercept error
-// from <
-// recowvery-applypatch
-// >
-static regex radbe("^error:(.+)\\s+");    // ADB cmd error
-static regex rarch("^.+(aarch64).*\\s+"); // Get arch from <uname -a>
 
-/**
+/* Shorter regex is possible, but I prefer like that */
+
+/* Used to start writting binary file */
+static regex rs("^.+I recowvery: (\\*\\*\\* DUMP START \\*\\*\\*)\\s+");
+/* Used to match all data block, and populate <datalist> */
+static regex rl("^.+I recowvery: HEXDUMP = \\[([^\\]]+)\\];\\s+");
+/* Used to end writting, and exit infinit loop */
+static regex rf("^.+I recowvery: (\\*\\*\\* DUMP END \\*\\*\\*)\\s+");
+/* Used to intercept error from <recowvery-applypatch> */
+static regex re("^.+I recowvery: (\\*\\*\\* DUMP ERROR \\*\\*\\*)\\s+");
+/* ADB cmd error */
+static regex radbe("^error:(.+)\\s+");
+
+/*
  * Run command
- * return : 0 if success else -1 if error
- **/
+ * Return 0 if success, else -1 if error
+ */
 int runcmd(string cmd) {
     char rslt[256];
     int cmdv = 0;
@@ -65,13 +52,13 @@ int runcmd(string cmd) {
     /* Redirect stderr to stdout */
     cmd.append(" 2>&1");
 
-    // To remove the \n or \r\n at the end.
+    /* To remove the \n or \r\n at the end */
     regex rcmdline("^(.+)\\s+");
     if (fc) {
         while (fgets(rslt, sizeof rslt, fc) != NULL) {
             if (regex_match(string(rslt), rcmdline))
                 cout << regex_replace(string(rslt), rcmdline, "$1") << endl;
-            // If error matched, return -1
+            /* If error matched, return -1 */
             if (regex_match(rslt, radbe)) {
                 cmdv = -1;
                 break;
@@ -86,12 +73,12 @@ int runcmd(string cmd) {
     return cmdv;
 }
 
-/**
+/*
  * Used to split string
  * s : string to split (in)
  * delim : used char for split (in)
  * elems : string array result (out)
- **/
+ */
 void split(const string &s, char delim, vector<string> &elems) {
     stringstream ss;
     ss.str(s);
@@ -101,28 +88,29 @@ void split(const string &s, char delim, vector<string> &elems) {
     }
 }
 
-/**
+/*
  * Used to split string
  * s : string to split (in)
  * delim : char delimeter (in)
  * return : vector string
- **/
+ */
 vector<string> split(const string &s, char delim) {
     vector<string> elems;
     split(s, delim, elems);
     return elems;
 }
 
-/** Convert hex string to byte array **/
+/* Convert hex string to byte array */
 void string_to_bytearray(std::string str, unsigned char *&array, int &size) {
     int length = str.length();
-    // make sure the input string has an even digit numbers
+
+    /* Make sure the input string has an even digit numbers */
     if (length % 2 == 1) {
         str = "0" + str;
         length++;
     }
 
-    // allocate memory for the output array
+    /* Allocate memory for the output array */
     array = new unsigned char[length / 2];
     size = length / 2;
 
@@ -147,11 +135,11 @@ void string_to_bytearray(std::string str, unsigned char *&array, int &size) {
     }
 }
 
-/**
+/*
  * Get architecture type
- * Run <adb shell uname -a> and find the word : aarch64
+ * Detect if "/system/bin/app_process64" is on device
  * If found return <ANDROID_64> else <ANDROID_32>
- **/
+ */
 string getArchType() {
     char arch_number[8];
     FILE *get_arch;
@@ -173,9 +161,9 @@ string getArchType() {
     return val;
 }
 
-/**
+/*
  * Display help
- **/
+ */
 void help() {
     cout << "dirtydump boot | recovery" << endl;
     cout << "Usage :" << endl;
@@ -202,11 +190,13 @@ void help() {
     cout << endl;
 }
 
-/**
+/*
  * Initialize process.
  * Push required files to your device and apply a chmod to them and exit.
- **/
+ */
 int init() {
+    char cmd[128];
+
     cout << "***************" << endl;
     cout << "**** Init *****" << endl;
     cout << "***************" << endl << endl;
@@ -220,7 +210,6 @@ int init() {
         "adb shell chmod 0777 /data/local/tmp/recowvery-applypatch_recovery",
         "adb shell chmod 0777 /data/local/tmp/recowvery-app_process64",
         "adb shell chmod 0777 /data/local/tmp/recowvery-app_process32"};
-    char cmd[128];
 
     /* Push files to the device */
     for (auto s : files) {
@@ -248,18 +237,19 @@ int init() {
     return 0;
 }
 
-/**
- * Apply exploit to applypatch (for boot or process) and app_process64
- **/
+/*
+ * Apply exploit to applypatch (for boot or process) and app_process*
+ */
 int runExploit(int v) {
     cout << "**********************" << endl;
     cout << "**** Run Exploit *****" << endl;
     cout << "**********************" << endl << endl;
 
     string cmdlist[] = {
-        "", // For applypatch
-        ""  // For app_process
+        "", /* For applypatch */
+        ""  /* For app_process */
     };
+
     if (v == BOOT)
         cmdlist[0].append(
             "adb shell /data/local/tmp/dirtycow /system/bin/applypatch "
@@ -290,9 +280,9 @@ int runExploit(int v) {
     return 0;
 }
 
-/**
- * reboot device from adb
- **/
+/*
+ * Reboot device from adb
+ */
 int rebootDevice() {
     cout << "************************" << endl;
     cout << "**** Reboot Device *****" << endl;
@@ -300,43 +290,45 @@ int rebootDevice() {
     return runcmd(string("adb reboot"));
 }
 
-/**
- * Function that do the stuff
- * If a line contain *** DUMP START *** it start to get all hex value in HEXDUMP
- *= [a1,e2,b4,ect.] and convert to binary before writing to output file.
+/*
+ * Function that do the stuff!
+ *
+ * If a line contain <*** DUMP START ***> it start to get all hex value in
+ * "HEXDUMP = [a1,e2,b4,ect.]" and convert to binary before writing to output
+ * file.
+ *
  * All other line are :
- * <*** DUMP ERROR ***> : Error during the process, or your device is
- *disconnected, no more battery...
+ * <*** DUMP ERROR ***> : Error during the process or error in your device
  * <*** DUMP END ***> : Dumping is end / end of process.
  * <Other lines> : Displayed
- **/
+ */
 int displayLogAndConvertData(string line) {
-    /**
+    /*
      * If an unexpected EOF from recowvery-applypatch or if no <pipe>...
      * We can't receive a null string, so break the loop, close fsout, and exit
-     *the program.
-     **/
+     * the program.
+     */
     if (line.empty()) {
         cout << string("* < null > received !") << endl;
         cout << string("Try again...") << endl;
         return -1;
     }
 
-    /**
-     * *** DUMP START ***
+    /*
+     * <*** DUMP START ***>
      * set startwrite = true to write parsed data to fsout
-     **/
+     */
     if (regex_match(line, rs)) {
         startwrite = true;
         cout << "Start writing to file..." << endl;
     }
 
-    /**
+    /*
      * Parse all string received if match
      * Note :
      *   It's possible to have matched string before intercept DUMP START,
      *   If we convert now, it's a good idea to have a broken output file.
-     **/
+     */
     if (startwrite && regex_match(line, rl)) {
         string s = regex_replace(line, rl, "$1");
         vector<string> data = split(s, ',');
@@ -358,31 +350,30 @@ int displayLogAndConvertData(string line) {
 
         cout << "\r";
         cout << "Block read : " << nBlock << " (Size : " << currentSize << ")";
-    }
-    /**
-     * Display the other lines (for debuging, logging...)
-     **/
-    else if (!regex_match(line, rl) &&
-             (!regex_match(line, rf) && !startwrite) && line.length() > 1) {
+    } else if (!regex_match(line, rl) &&
+               (!regex_match(line, rf) && !startwrite) && line.length() > 1) {
+        /*
+         * Display the other lines (for debuging, logging...)
+         */
         cout << line;
     }
 
-    /**
-     * *** DUMP END ***
+    /*
+     * <*** DUMP END ***>
      * Flush and close fsout, inform the user, and break the loop.
-     **/
+     */
     if (startwrite && regex_match(line, rf)) {
         cout << endl << "Finish" << endl;
         startwrite = false;
         return 1;
     }
 
-    /**
-     * *** DUMP ERROR ***
+    /*
+     * <*** DUMP ERROR ***>
      * An error intercepted from ADB, close fsout, set start to false.
-     * < applypatch > will restart every 3 min.
+     * "applypatch" will restart every 3 min.
      * We break the loop after 3 errors.
-     **/
+     */
     if (regex_match(line, re)) {
         cout << std::string("* Error received from ADB *") << std::endl;
 
@@ -402,10 +393,10 @@ int displayLogAndConvertData(string line) {
     return 0;
 }
 
-/**
- * run <adb logcat -s recowvery> and send line by line to
- *<displayLogAndConvertData> function
- **/
+/*
+ * Run <adb logcat -s recowvery> and send line by line to
+ * <displayLogAndConvertData> function
+ */
 int readFromLogcat() {
     cout << "*********************************" << endl;
     cout << "**** adb logcat -s recowvery ****" << endl;
@@ -417,12 +408,12 @@ int readFromLogcat() {
     if (fc) {
         while (fgets(buff, sizeof buff, fc) != NULL) {
             prc = displayLogAndConvertData(string(buff));
-            // Error occuring
+            /* Error occuring */
             if (prc == -1) {
                 cerr << "Error during the process !" << endl;
                 break;
             }
-            // Process finished
+            /* Process finished */
             if (prc == 1)
                 break;
         }
@@ -444,7 +435,7 @@ int readFromLogcat() {
     return prc;
 }
 
-/** main **/
+/* main */
 int main(int argc, char **argv) {
     int ret = 0;
     string filename;
