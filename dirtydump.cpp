@@ -153,24 +153,22 @@ void string_to_bytearray(std::string str, unsigned char *&array, int &size) {
  * If found return <ANDROID_64> else <ANDROID_32>
  **/
 string getArchType() {
-    char rslt[256];
+    char arch_number[8];
+    FILE *get_arch;
     string val;
-    FILE *fc = popen("adb shell uname -a", "r");
-    // To remove the \n or \r\n at the end.
-    if (fc) {
-        while (fgets(rslt, sizeof rslt, fc) != NULL) {
-            if (regex_match(string(rslt), rarch)) {
-                cout << "* Android x64 version detected." << endl;
-                val = string(ANDROID_64);
-            } else {
-                cout << "* Android x32 version detected." << endl;
-                val = string(ANDROID_32);
-            }
-        }
-        cout << endl;
-        fclose(fc);
+
+    get_arch = popen(
+        "adb shell 'if [ -s /system/bin/app_process64 ]; then echo 64; fi;'",
+        "r");
+    fgets(arch_number, sizeof(arch_number), get_arch);
+    pclose(get_arch);
+
+    if (strstr(arch_number, "64")) {
+        cout << "* Android x64 version detected." << endl;
+        val = string(ANDROID_64);
     } else {
-        cerr << "Error running 'adb shell uname -a'" << endl;
+        cout << "* Android x32 version detected." << endl;
+        val = string(ANDROID_32);
     }
     return val;
 }
