@@ -75,9 +75,9 @@ int runcmd(string cmd) {
 
 /*
  * Used to split string
- * s : string to split (in)
- * delim : used char for split (in)
- * elems : string array result (out)
+ * s: string to split (in)
+ * delim: used char for split (in)
+ * elems: string array result (out)
  */
 void split(const string &s, char delim, vector<string> &elems) {
     stringstream ss;
@@ -90,9 +90,9 @@ void split(const string &s, char delim, vector<string> &elems) {
 
 /*
  * Used to split string
- * s : string to split (in)
- * delim : char delimeter (in)
- * return : vector string
+ * s: string to split (in)
+ * delim: char delimeter (in)
+ * return: vector string
  */
 vector<string> split(const string &s, char delim) {
     vector<string> elems;
@@ -165,29 +165,29 @@ string getArchType() {
  * Display help
  */
 void help() {
-    cout << "dirtydump boot | recovery" << endl;
-    cout << "Usage :" << endl;
-    cout << "\tdirtydump boot     : Dump device boot partition and save it to "
-            "boot.img."
+    cout << "dirtydump (wip)\n"
+            "Usage: dirtydump <boot/recovery>\n"
+            "\n"
+            "Dump device boot or recovery partition and save it to an image\n"
+            "using dirtycow bug.\n"
+            "\n"
+            "Information:\n"
+            "  This app use the same exploit explained here:\n"
+            "    <https://github.com/jcadduono/android_external_dirtycow>\n"
+            "  The only difference is by the <applypatch>, instead of\n"
+            "  patching it, the app will read your boot or recovery\n"
+            "  partition.\n"
+            "\n"
+            "  The app convert all data to hex value, and display it on\n"
+            "  logcat after it read all data from logcat and do the reverse,\n"
+            "  convert all hex value to binary, and write it to a image file.\n"
+            "\n"
+            "  Since this temporary overwrite system files, your device will\n"
+            "  start to crash, so after end of process the app will reboot\n"
+            "  your device automaticaly.\n"
+            "\n"
+            "  Don\'t worry, your system is not touched during process.\n"
          << endl;
-    cout << "\tdirtydump recovery : Dump device recovery partition and save it "
-            "to recovery.img."
-         << endl
-         << endl;
-    cout << "Information :" << endl;
-    cout << "\tThis app use the same exploit explained here : " << endl;
-    cout << "\thttps://github.com/jcadduono/android_external_dirtycow" << endl;
-    cout << "\tThe only difference is by the <applypatch>, instead of patching,"
-         << endl;
-    cout << "\tit read your boot / recovery partition." << endl;
-    cout << "\tConvert all data to hex value, and display it." << endl;
-    cout << "\tDuring the process, the app read all data through" << endl;
-    cout << "\t<adb logcat -s recowvery> and do the reverse," << endl;
-    cout << "\tconvert all hex value to binary, and write it to a file."
-         << endl;
-    cout << "\tBecause your device is like crashing, this app reboot" << endl;
-    cout << "\tautomaticaly when the process is finished." << endl;
-    cout << endl;
 }
 
 /*
@@ -197,9 +197,10 @@ void help() {
 int init() {
     char cmd[128];
 
-    cout << "***************" << endl;
-    cout << "**** Init *****" << endl;
-    cout << "***************" << endl << endl;
+    cout << "***************\n"
+            "**** Init *****\n"
+            "***************\n"
+         << endl;
 
     string files[] = {"dirtycow", "recowvery-applypatch_boot",
                       "recowvery-applypatch_recovery",
@@ -241,9 +242,10 @@ int init() {
  * Apply exploit to applypatch (for boot or process) and app_process*
  */
 int runExploit(int v) {
-    cout << "**********************" << endl;
-    cout << "**** Run Exploit *****" << endl;
-    cout << "**********************" << endl << endl;
+    cout << "**********************\n"
+            "**** Run Exploit *****\n"
+            "**********************\n"
+         << endl;
 
     string cmdlist[] = {
         "", /* For applypatch */
@@ -284,9 +286,10 @@ int runExploit(int v) {
  * Reboot device from adb
  */
 int rebootDevice() {
-    cout << "************************" << endl;
-    cout << "**** Reboot Device *****" << endl;
-    cout << "************************" << endl << endl;
+    cout << "************************\n"
+            "**** Reboot Device *****\n"
+            "************************\n"
+         << endl;
     return runcmd(string("adb reboot"));
 }
 
@@ -297,10 +300,10 @@ int rebootDevice() {
  * "HEXDUMP = [a1,e2,b4,ect.]" and convert to binary before writing to output
  * file.
  *
- * All other line are :
- * <*** DUMP ERROR ***> : Error during the process or error in your device
- * <*** DUMP END ***> : Dumping is end / end of process.
- * <Other lines> : Displayed
+ * All other line are:
+ * <*** DUMP ERROR ***>: Error during the process or error in your device
+ * <*** DUMP END ***>: Dumping is end / end of process.
+ * <Other lines>: Displayed
  */
 int displayLogAndConvertData(string line) {
     /*
@@ -325,7 +328,7 @@ int displayLogAndConvertData(string line) {
 
     /*
      * Parse all string received if match
-     * Note :
+     * Note:
      *   It's possible to have matched string before intercept DUMP START,
      *   If we convert now, it's a good idea to have a broken output file.
      */
@@ -349,7 +352,7 @@ int displayLogAndConvertData(string line) {
         currentSize = nBlock * 32;
 
         cout << "\r";
-        cout << "Block read : " << nBlock << " (Size : " << currentSize << ")";
+        cout << "Block read: " << nBlock << " (Size: " << currentSize << ")";
     } else if (!regex_match(line, rl) &&
                (!regex_match(line, rf) && !startwrite) && line.length() > 1) {
         /*
@@ -398,9 +401,10 @@ int displayLogAndConvertData(string line) {
  * <displayLogAndConvertData> function
  */
 int readFromLogcat() {
-    cout << "*********************************" << endl;
-    cout << "**** adb logcat -s recowvery ****" << endl;
-    cout << "*********************************" << endl << endl;
+    cout << "*********************************\n"
+            "**** adb logcat -s recowvery ****\n"
+            "*********************************\n"
+         << endl;
 
     char buff[1024];
     int prc = 0;
@@ -476,7 +480,7 @@ int main(int argc, char **argv) {
     else {
         fsout = fopen(filename.c_str(), "wb");
         if (!fsout) {
-            cerr << "Can't open or create file : <" << string(filename) << ">"
+            cerr << "Can't open or create file: <" << string(filename) << ">"
                  << endl;
             rebootDevice();
             return errno;
@@ -484,11 +488,10 @@ int main(int argc, char **argv) {
             ret = readFromLogcat();
             fclose(fsout);
         }
-        cout << endl;
-        cout << "Image file saved here :" << endl;
-        cout << " " << appDirectory << string(DIRECTORY_SEPARATOR)
-             << string(filename) << endl;
-        cout << endl;
+        cout << "\n"
+                "Image file saved here: "
+             << appDirectory << string(DIRECTORY_SEPARATOR) << string(filename)
+             << endl;
     }
 
     cout << "Rebooting your device..." << endl;
