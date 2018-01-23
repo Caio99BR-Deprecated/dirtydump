@@ -33,3 +33,6 @@
 
 # Compiled binary
 dirtydump
+
+# Dumped images
+*.img
