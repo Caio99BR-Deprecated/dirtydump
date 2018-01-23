@@ -253,10 +253,12 @@ int exploit_run() {
 
     cout << "**** Running Exploit ****" << endl;
 
-    sprintf(applypatch,
-            "adb shell /data/local/tmp/dirtycow "
-            "/system/bin/applypatch /data/local/tmp/recowvery-applypatch_%s",
-            dump_partition.c_str());
+    sprintf(
+        applypatch,
+        "adb shell /data/local/tmp/dirtycow%s "
+        "/system/bin/applypatch%s /data/local/tmp/recowvery-applypatch_%s%s",
+        arch_type.c_str(), arch_type.c_str(), dump_partition.c_str(),
+        arch_type.c_str());
     cout << string(applypatch) << endl;
 
     if (cmd_run(string(applypatch)) != 0)
