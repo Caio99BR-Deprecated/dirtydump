@@ -4,8 +4,6 @@
 
 using namespace std;
 
-#define BOOT 0
-#define RECOVERY 1
 #define ANDROID_64 "64"
 #define ANDROID_32 "32"
 
@@ -21,6 +19,7 @@ typedef unsigned char byte;
 
 static string app_dir;
 static string arch_type;
+static string dump_partition;
 static FILE *fsout;
 static bool start_write = false;
 static int crash_number = 0;
@@ -105,7 +104,7 @@ vector<string> split(const string &s, char delim) {
 }
 
 /* Convert hex string to byte array */
-void string_to_bytearray(std::string str, unsigned char *&array, int &size) {
+void string_to_bytearray(string str, unsigned char *&array, int &size) {
     int length = str.length();
 
     /* Make sure the input string has an even digit numbers */
@@ -118,7 +117,7 @@ void string_to_bytearray(std::string str, unsigned char *&array, int &size) {
     array = new unsigned char[length / 2];
     size = length / 2;
 
-    std::stringstream sstr(str);
+    stringstream sstr(str);
     for (int i = 0; i < size; i++) {
         char ch1, ch2;
         sstr >> ch1 >> ch2;
@@ -145,9 +144,10 @@ void string_to_bytearray(std::string str, unsigned char *&array, int &size) {
  * If found return <ANDROID_64> else <ANDROID_32>
  */
 int arch_type_get() {
-    int ret = 0;
     char arch_version[8];
     FILE *arch_popen;
+
+    cout << "**** Getting Architecture Type ****" << endl;
 
     arch_popen =
         popen("adb shell 'if [ -s /system/bin/app_process64 ]; then echo 64; "
@@ -157,22 +157,17 @@ int arch_type_get() {
     pclose(arch_popen);
 
     if (strstr(arch_version, "64")) {
-        cout << "* Android x64 version detected." << endl;
-        arch_type = string(ANDROID_64);
+        arch_type = ANDROID_64;
     } else if (strstr(arch_version, "32")) {
-        cout << "* Android x32 version detected." << endl;
-        arch_type = string(ANDROID_32);
+        arch_type = ANDROID_32;
     } else {
-        cout << "* Android x32 version detected but not supported (4.4.x or "
-                "lower), exiting..."
+        cout << "Unsupported Android device detected (4.4.x or lower)\n"
              << endl;
-        ret = -1;
+        return -1;
     }
+    cout << "Android x" << string(arch_type) << " version detected\n" << endl;
 
-    // TEMP
-    system("pause");
-
-    return ret;
+    return 0;
 }
 
 /*
@@ -180,7 +175,7 @@ int arch_type_get() {
  */
 void help() {
     cout << "dirtydump (wip)\n"
-            "Usage: dirtydump <boot/recovery>\n"
+            "Usage: dirtydump <boot/recovery/help>\n"
             "\n"
             "Dump device boot or recovery partition and save it to an image\n"
             "using dirtycow bug.\n"
@@ -205,28 +200,38 @@ void help() {
 }
 
 /*
- * Initialize process.
  * Push required files to your device and apply a chmod to them and exit.
  */
-int init() {
+int device_push_files() {
     char cmd[128];
-
-    cout << "***************\n"
-            "**** Init *****\n"
-            "***************\n"
-         << endl;
-
-    string files[] = {"dirtycow", "dirtydump_boot", "dirtydump_recovery",
-                      "dirtydump-app_process64", "dirtydump-app_process32"};
-    string cmdlist[] = {
+    string push_files[] = {"dirtycow", "dirtydump-applypatch_",
+                           "dirtydump-app_process"};
+    string chmod_files[] = {
         "adb shell chmod 0777 /data/local/tmp/dirtycow",
-        "adb shell chmod 0777 /data/local/tmp/dirtydump_boot",
-        "adb shell chmod 0777 /data/local/tmp/dirtydump_recovery",
-        "adb shell chmod 0777 /data/local/tmp/dirtydump-app_process64",
-        "adb shell chmod 0777 /data/local/tmp/dirtydump-app_process32"};
+        "adb shell chmod 0777 /data/local/tmp/dirtydump-applypatch_",
+        "adb shell chmod 0777 /data/local/tmp/dirtydump-app_process"};
+
+    /* Files to push */
+    if (dump_partition == "boot") {
+        push_files[1] += {"boot"};
+        chmod_files[1] += {"boot"};
+    } else if (dump_partition == "recovery") {
+        push_files[1] += {"recovery"};
+        chmod_files[1] += {"recovery"};
+    } else
+        return -1;
+    if (arch_type == ANDROID_32) {
+        push_files[2] += {"32"};
+        chmod_files[2] += {"32"};
+    } else if (arch_type == ANDROID_64) {
+        push_files[2] += {"64"};
+        chmod_files[2] += {"64"};
+    } else
+        return -1;
 
     /* Push files to the device */
-    for (auto s : files) {
+    cout << "**** Pushing Required Files to Device ****" << endl;
+    for (auto s : push_files) {
         sprintf(cmd, "adb push %s%sbin%s%s /data/local/tmp", app_dir.c_str(),
                 DIRECTORY_SEPARATOR, DIRECTORY_SEPARATOR, s.c_str());
         cout << string(cmd) << endl;
@@ -236,16 +241,13 @@ int init() {
     }
 
     /* Apply chmod to the pushed files */
-    for (auto s : cmdlist) {
+    cout << "**** Applying Required Permissions to Pushed Files ****" << endl;
+    for (auto s : chmod_files) {
         cout << string(s) << endl;
 
         if (cmd_run(s) != 0)
             return -1;
     }
-
-    /* Get arch type */
-    if (arch_type_get() != 0)
-        return -1;
 
     return 0;
 }
@@ -253,45 +255,28 @@ int init() {
 /*
  * Apply exploit to applypatch (for boot or process) and app_process*
  */
-int exploit_run(int partition) {
-    cout << "**********************\n"
-            "**** Run Exploit *****\n"
-            "**********************\n"
-         << endl;
+int exploit_run() {
+    char applypatch[256];
+    char app_process[256];
 
-    string cmdlist[] = {
-        "", /* For applypatch */
-        ""  /* For app_process */
-    };
+    cout << "**** Running Exploit ****" << endl;
 
-    if (partition == BOOT)
-        cmdlist[0].append(
-            "adb shell /data/local/tmp/dirtycow /system/bin/applypatch "
-            "/data/local/tmp/dirtydump_boot");
-    else if (partition == RECOVERY)
-        cmdlist[0].append(
-            "adb shell /data/local/tmp/dirtycow /system/bin/applypatch "
-            "/data/local/tmp/dirtydump_recovery");
-    else
+    sprintf(applypatch,
+            "adb shell /data/local/tmp/dirtycow "
+            "/system/bin/applypatch /data/local/tmp/dirtydump-applypatch_%s",
+            dump_partition.c_str());
+    cout << string(applypatch) << endl;
+
+    if (cmd_run(string(applypatch)) != 0)
         return -1;
 
-    if (arch_type == ANDROID_64)
-        cmdlist[1] =
-            "adb shell /data/local/tmp/dirtycow /system/bin/app_process64 "
-            "/data/local/tmp/dirtydump-app_process64";
-    else if (arch_type == ANDROID_32)
-        cmdlist[1] =
-            "adb shell /data/local/tmp/dirtycow /system/bin/app_process32 "
-            "/data/local/tmp/dirtydump-app_process32";
-    else
+    sprintf(app_process, "adb shell /data/local/tmp/dirtycow "
+                         "/system/bin/app_process%s "
+                         "/data/local/tmp/dirtydump-app_process%s",
+            arch_type.c_str(), arch_type.c_str());
+    cout << string(app_process) << endl;
+    if (cmd_run(string(app_process)) != 0)
         return -1;
-
-    for (auto s : cmdlist) {
-        cout << s << endl;
-
-        if (cmd_run(s) != 0)
-            return -1;
-    }
 
     return 0;
 }
@@ -300,10 +285,7 @@ int exploit_run(int partition) {
  * Reboot device from adb
  */
 int device_reboot() {
-    cout << "************************\n"
-            "**** Reboot Device *****\n"
-            "************************\n"
-         << endl;
+    cout << "**** Reboot Device ****" << endl;
 
     return cmd_run(string("adb reboot"));
 }
@@ -321,14 +303,16 @@ int device_reboot() {
  * <Other lines>: Displayed
  */
 int logcat_convert_to_data(string line) {
+    string s;
     /*
      * If an unexpected EOF from dirtydump or if no <pipe>...
      * We can't receive a null string, so break the loop, close fsout, and exit
      * the program.
      */
     if (line.empty()) {
-        cout << string("* < null > received !") << endl;
-        cout << string("Try again...") << endl;
+        cout << "<null> received!\n"
+                "Re-run the app\n"
+             << endl;
         return -1;
     }
 
@@ -338,7 +322,7 @@ int logcat_convert_to_data(string line) {
      */
     if (regex_match(line, rs)) {
         start_write = true;
-        cout << "Start writing to file..." << endl;
+        cout << "**** Start writing to file ****" << endl;
     }
 
     /*
@@ -348,7 +332,7 @@ int logcat_convert_to_data(string line) {
      *   If we convert now, it's a good idea to have a broken output file.
      */
     if (start_write && regex_match(line, rl)) {
-        string s = regex_replace(line, rl, "$1");
+        s = regex_replace(line, rl, "$1");
         vector<string> data = split(s, ',');
         for (int c = 0; c < (int)data.size(); c++) {
             try {
@@ -358,9 +342,9 @@ int logcat_convert_to_data(string line) {
                 fwrite(b, 1, sb, fsout);
             } catch (const exception &ex) {
                 cout << endl;
-                cout << string("** Exception **") << endl;
-                cout << string(" - When convert : ") << data[c] << endl;
-                cout << string(" - Message      : ") << ex.what() << endl;
+                cout << "Exception" << endl;
+                cout << " - When convert : " << data[c] << endl;
+                cout << " - Message      : " << ex.what() << endl;
             }
         }
         block_number++;
@@ -382,7 +366,7 @@ int logcat_convert_to_data(string line) {
      * Flush and close fsout, inform the user, and break the loop.
      */
     if (start_write && regex_match(line, rf)) {
-        cout << endl << "Finish" << endl;
+        cout << endl << "**** Finish ****" << endl;
         start_write = false;
         return 1;
     }
@@ -394,18 +378,14 @@ int logcat_convert_to_data(string line) {
      * We break the loop after 3 errors.
      */
     if (regex_match(line, re)) {
-        cout << std::string("* Error received from ADB *") << std::endl;
+        cout << "Error received from ADB\n" << endl;
 
         start_write = false;
         if (crash_number == 3) {
-            cout << std::string("* Too many tries, please check your dirtydump "
-                                "and try again.")
-                 << std::endl;
+            cerr << "Too many tries, please try again\n" << endl;
             return -1;
         }
-        cout << std::string("* Be patient, dirtydump will restart in a few "
-                            "minutes.")
-             << std::endl;
+        cout << "Be patient, dirtydump will restart in a few minutes\n" << endl;
         crash_number++;
     }
 
@@ -420,10 +400,7 @@ int logcat_read() {
     char buff[1024];
     int ret = 0;
 
-    cout << "*********************************\n"
-            "**** adb logcat -s dirtydump ****\n"
-            "*********************************\n"
-         << endl;
+    cout << "**** Reading Dump From Logcat ****" << endl;
 
     FILE *fc = popen("adb logcat -s dirtydump", "r");
     if (fc) {
@@ -431,7 +408,7 @@ int logcat_read() {
             ret = logcat_convert_to_data(string(buff));
             /* Error occuring */
             if (ret == -1) {
-                cerr << "Error during the process !" << endl;
+                cerr << "Error during the process!\n" << endl;
                 break;
             }
             /* Process finished */
@@ -447,12 +424,39 @@ int logcat_read() {
          * So, so we display an error.
          */
         if (start_write) {
-            cerr << "Error during the process !" << endl;
-            ret = errno;
+            cerr << "Error during the process!\n" << endl;
+            ret = -1;
         }
         fclose(fc);
     } else {
-        cerr << "Error running <adb logcat -s dirtydump" << endl;
+        cerr << "Error running <adb logcat -s dirtydump>\n" << endl;
+        ret = -1;
+    }
+
+    return ret;
+}
+
+/*
+ * Check for device
+ */
+int device_check() {
+    int ret = 0;
+    char adb_check[8];
+    FILE *adb_popen;
+
+    cout << "**** Checking Device ****" << endl;
+
+    adb_popen = popen("adb shell 'echo on' 2> /dev/null", "r");
+    fgets(adb_check, sizeof(adb_check), adb_popen);
+    pclose(adb_popen);
+
+    if (strstr(adb_check, "on")) {
+        cout << "Device detected\n" << endl;
+    } else {
+        cout << "Device not detected, try to run\n"
+                "  '$ adb kill-server; sudo adb start-server'\n"
+                "And re-run the app\n"
+             << endl;
         ret = -1;
     }
 
@@ -463,13 +467,48 @@ int logcat_read() {
 int main(int argc, char **argv) {
     int ret = 0;
     string filename;
+    string input_null;
 
     if (argc == 1) {
+        /* No arguments, show help */
         help();
+
         return 0;
+    } else if (argc == 2) {
+        /* Help argument */
+        if (string(argv[1]) == "help") {
+            help();
+            return 0;
+        }
+
+        /* Check if the argument is 'boot', if not continue */
+        if (string(argv[1]) == "boot") {
+            filename = "boot.img";
+        } else {
+            /* Check if the argument is 'recovery', if not stop */
+            if (string(argv[1]) == "recovery") {
+                filename = "recovery.img";
+            } else {
+                help();
+                cout << "Unknown argument: " << string(argv[0]) << " "
+                     << string(argv[1]) << endl;
+
+                return -1;
+            }
+        }
+        dump_partition = string(argv[1]);
+        cout << "\n**** Dumping '" << string(dump_partition)
+             << "' partition ****\n"
+             << endl;
+    } else if (argc >= 3) {
+        /* Too much arguments */
+        cout << "dirtydump: Too much arguments!" << endl;
+
+        return -1;
     }
 
-    /* Fix for windows
+    /*
+     * Fix for windows
      * If run in same directory as the exe, return only the exe name without
      * folder where it run.
      * So, if DIRECTORY_SEPARATOR not found in argv_str, app_dir = "." for
@@ -482,21 +521,25 @@ int main(int argc, char **argv) {
     else
         app_dir = string(".");
 
-    /* Run init */
-    if (init() != 0)
+    /* Check if the device is available */
+    if (device_check() != 0)
         return -1;
 
-    /* Get user choice and run exploit*/
-    if (string(argv[1]) == "boot") {
-        ret = exploit_run(BOOT);
-        filename = "boot.img";
-    } else {
-        ret = exploit_run(RECOVERY);
-        filename = "recovery.img";
-    }
+    /* Get arch type */
+    if (arch_type_get() != 0)
+        return -1;
 
-    if (ret != 0)
-        return ret;
+    /* Push files to device */
+    if (device_push_files() != 0)
+        return -1;
+
+    /* Wait for user input */
+    cout << "Do you really want to continue?\n";
+    getline(cin, input_null);
+
+    /* Run exploit */
+    if (exploit_run() != 0)
+        return -1;
 
     fsout = fopen(filename.c_str(), "wb");
     if (!fsout) {
@@ -504,19 +547,18 @@ int main(int argc, char **argv) {
              << endl;
         device_reboot();
 
-        return errno;
+        return -1;
     } else {
         ret = logcat_read();
         fclose(fsout);
 
-        cout << "\n"
-                "Image file saved here: "
-             << app_dir << string(DIRECTORY_SEPARATOR) << string(filename)
+        cout << "**** Image file saved here: " << app_dir
+             << string(DIRECTORY_SEPARATOR) << string(filename) << " ****"
              << endl;
     }
 
     /* End of process, restart the device */
-    cout << "Rebooting your device..." << endl;
+    cout << "\n**** Rebooting your device ****" << endl;
     device_reboot();
 
     return 0;
