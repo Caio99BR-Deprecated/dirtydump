@@ -211,23 +211,15 @@ int device_push_files() {
         "adb shell chmod 0777 /data/local/tmp/recowvery-applypatch_",
         "adb shell chmod 0777 /data/local/tmp/recowvery-app_process"};
 
-    /* Files to push */
-    if (dump_partition == "boot") {
-        push_files[1] += {"boot"};
-        chmod_files[1] += {"boot"};
-    } else if (dump_partition == "recovery") {
-        push_files[1] += {"recovery"};
-        chmod_files[1] += {"recovery"};
-    } else
-        return -1;
-    if (arch_type == ANDROID_32) {
-        push_files[2] += {"32"};
-        chmod_files[2] += {"32"};
-    } else if (arch_type == ANDROID_64) {
-        push_files[2] += {"64"};
-        chmod_files[2] += {"64"};
-    } else
-        return -1;
+    /* Add arch_type and dump_partition to end */
+    push_files[0] += {string(arch_type)};
+    chmod_files[0] += {string(arch_type)};
+    push_files[1] += {string(dump_partition)};
+    chmod_files[1] += {string(dump_partition)};
+    push_files[1] += {string(arch_type)};
+    chmod_files[1] += {string(arch_type)};
+    push_files[2] += {string(arch_type)};
+    chmod_files[2] += {string(arch_type)};
 
     /* Push files to the device */
     cout << "**** Pushing Required Files to Device ****" << endl;
@@ -270,10 +262,10 @@ int exploit_run() {
     if (cmd_run(string(applypatch)) != 0)
         return -1;
 
-    sprintf(app_process, "adb shell /data/local/tmp/dirtycow "
+    sprintf(app_process, "adb shell /data/local/tmp/dirtycow%s "
                          "/system/bin/app_process%s "
                          "/data/local/tmp/recowvery-app_process%s",
-            arch_type.c_str(), arch_type.c_str());
+            arch_type.c_str(), arch_type.c_str(), arch_type.c_str());
     cout << string(app_process) << endl;
     if (cmd_run(string(app_process)) != 0)
         return -1;
